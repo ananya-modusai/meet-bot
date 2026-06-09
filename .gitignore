@@ -1,0 +1,6 @@
+.env
+*.pdf
+__pycache__/
+venv/
+*.mp4
+recordings/

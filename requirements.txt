@@ -1,0 +1,6 @@
+playwright
+anthropic
+pymupdf
+deepgram-sdk
+pyaudio
+python-dotenv

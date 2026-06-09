@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PDF Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a1a; }
+    #viewerContainer { width: 100vw; height: 100vh; overflow: auto; }
+    iframe { width: 100%; height: 100%; border: none; }
+  </style>
+</head>
+<body>
+  <!--
+    We embed PDF.js via the official CDN viewer.
+    The PDF path is passed as a query param: ?file=<path>
+    Page navigation is done via: PDFViewerApplication.page = N
+    injected into the iframe's contentWindow.
+  -->
+  <div id="viewerContainer">
+    <iframe id="pdfFrame" src=""></iframe>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const filePath = params.get("file") || "";
+
+    // Use Mozilla's hosted PDF.js viewer
+    const viewerBase = "https://mozilla.github.io/pdf.js/web/viewer.html";
+    document.getElementById("pdfFrame").src = `${viewerBase}?file=${encodeURIComponent(filePath)}`;
+
+    // Expose goToPage so Playwright can call it via page.evaluate
+    window.goToPage = function(n) {
+      const frame = document.getElementById("pdfFrame");
+      try {
+        frame.contentWindow.PDFViewerApplication.page = n;
+      } catch(e) {
+        console.error("goToPage error:", e);
+      }
+    };
+  </script>
+</body>
+</html>

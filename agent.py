@@ -1,0 +1,190 @@
+import asyncio
+import argparse
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from dotenv import load_dotenv
+from playwright.async_api import async_playwright
+import anthropic
+
+from document import prepare_document
+from audio import stream_stt, speak, is_speaking
+import meeting as meet_mod
+
+load_dotenv()
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+SYSTEM_PROMPT_TEMPLATE = """You are a voice assistant in a Google Meet.
+You have full knowledge of this document:
+
+{full_document_text}
+
+Rules:
+- Keep answers concise — this is spoken audio, not text
+- No bullet points, no markdown — plain conversational speech
+- Always identify which page the answer is from
+- If asked to share/show/display the document, respond with page 1
+
+Respond ONLY in this JSON format:
+{{"answer": "conversational spoken response here", "page": 1}}"""
+
+# Anthropic client
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+# Will be set after PDF is loaded
+system_prompt = ""
+pdf_tab = None
+meet_tab = None
+
+
+async def go_to_page(page_num: int):
+    """Navigate the PDF.js viewer to a given page."""
+    if pdf_tab:
+        try:
+            await pdf_tab.evaluate(f"window.goToPage({page_num})")
+        except Exception as e:
+            print(f"[PDF] Page nav error: {e}")
+
+
+async def ask_claude(question: str) -> dict:
+    """Send question to Claude with prompt caching on the document."""
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=512,
+        system=[
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        messages=[{"role": "user", "content": question}],
+    )
+    raw = response.content[0].text.strip()
+    # Strip markdown code fences if Claude wraps the JSON
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return json.loads(raw)
+
+
+async def handle_input(text: str):
+    """Central handler for both voice and chat input."""
+    print(f"[Input] {text}")
+
+    # Check for share intent first
+    if meet_mod.has_share_intent(text):
+        await meet_mod.maybe_start_screenshare(meet_tab, pdf_tab)
+        await speak("Sure, sharing the document now.")
+        await go_to_page(1)
+        return
+
+    # Ask Claude
+    try:
+        result = await ask_claude(text)
+        answer = result.get("answer", "Sorry, I couldn't find that.")
+        page = result.get("page")
+
+        print(f"[Claude] page={page} answer={answer}")
+
+        if page:
+            await go_to_page(page)
+
+        await speak(answer)
+    except Exception as e:
+        print(f"[Claude] Error: {e}")
+        await speak("Sorry, I ran into an issue answering that.")
+
+
+def start_recording():
+    """Start FFmpeg recording in background."""
+    os.makedirs("recordings", exist_ok=True)
+    cmd = (
+        "ffmpeg -f x11grab -r 30 -s 1280x720 -i :99 "
+        "-f pulse -i VirtualSpeaker.monitor "
+        "-c:v libx264 -c:a aac "
+        f"recordings/$(date +%Y%m%d_%H%M%S).mp4"
+    )
+    subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("[Recording] FFmpeg started.")
+
+
+async def main():
+    global system_prompt, pdf_tab, meet_tab
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--meet", required=True, help="Google Meet URL")
+    parser.add_argument("--doc", required=True, help="Path to PDF document")
+    args = parser.parse_args()
+
+    # 1. Extract PDF text
+    print(f"[Doc] Loading {args.doc}...")
+    doc_text = prepare_document(args.doc)
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(full_document_text=doc_text)
+    print(f"[Doc] Loaded. ~{len(doc_text.split())} words.")
+
+    # 2. Start recording
+    start_recording()
+
+    # 3. Launch browser
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=False,
+            args=[
+                f"--display=:99",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--autoplay-policy=no-user-gesture-required",
+                "--use-fake-ui-for-media-stream",
+                "--auto-accept-camera-and-microphone-capture",
+            ],
+        )
+        context = await browser.new_context(
+            permissions=["camera", "microphone"],
+        )
+
+        # 4. Open PDF viewer tab
+        viewer_path = Path(__file__).parent / "viewer.html"
+        pdf_url = f"file://{viewer_path}?file={Path(args.doc).resolve()}"
+        pdf_tab = await context.new_page()
+        await pdf_tab.goto(pdf_url)
+        print("[PDF] Viewer opened.")
+
+        # 5. Join Google Meet
+        meet_tab = await context.new_page()
+        await meet_tab.goto(args.meet)
+
+        # Handle name prompt
+        try:
+            name_input = meet_tab.locator("input[placeholder='Your name']")
+            await name_input.wait_for(timeout=5000)
+            await name_input.fill("Doc Agent")
+        except Exception:
+            pass
+
+        # Turn off camera
+        try:
+            cam_btn = meet_tab.locator("[aria-label*='Turn off camera']").first
+            await cam_btn.click(timeout=3000)
+        except Exception:
+            pass
+
+        # Click Join
+        join_btn = meet_tab.locator("button:has-text('Join now')")
+        await join_btn.wait_for(timeout=15000)
+        await join_btn.click()
+        print("[Meet] Joined the call.")
+
+        # 6. Start chat polling and STT concurrently
+        await asyncio.gather(
+            stream_stt(handle_input),
+            meet_mod.poll_chat(meet_tab, handle_input),
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
