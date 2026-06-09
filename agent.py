@@ -146,6 +146,11 @@ async def main():
         context = await browser.new_context(
             permissions=["camera", "microphone"],
         )
+        # Grant permissions scoped to Google Meet origin so no browser popup appears
+        await context.grant_permissions(
+            ["camera", "microphone"],
+            origin="https://meet.google.com",
+        )
 
         # 4. Open PDF viewer tab
         viewer_path = Path(__file__).parent / "viewer.html"
@@ -158,13 +163,16 @@ async def main():
         meet_tab = await context.new_page()
         await meet_tab.goto(args.meet)
 
-        # Handle name prompt
+        # Handle name prompt (shown when joining without a Google account)
         try:
             name_input = meet_tab.locator("input[placeholder='Your name']")
-            await name_input.wait_for(timeout=5000)
-            await name_input.fill("Doc Agent")
+            await name_input.wait_for(timeout=8000)
+            await name_input.click()
+            await name_input.fill("")
+            await name_input.type("Doc Agent", delay=50)
+            print("[Meet] Name entered.")
         except Exception:
-            pass
+            pass  # Already signed in — no name prompt shown
 
         # Turn off camera
         try:
@@ -173,8 +181,10 @@ async def main():
         except Exception:
             pass
 
-        # Click Join
-        join_btn = meet_tab.locator("button:has-text('Join now')")
+        # Click Join — works for both signed-in ("Join now") and guest ("Ask to join")
+        join_btn = meet_tab.locator(
+            "button:has-text('Join now'), button:has-text('Ask to join')"
+        ).first
         await join_btn.wait_for(timeout=15000)
         await join_btn.click()
         print("[Meet] Joined the call.")
