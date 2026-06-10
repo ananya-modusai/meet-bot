@@ -25,7 +25,7 @@ async def stream_stt(on_transcript):
 
     url = (
         "wss://api.deepgram.com/v1/listen"
-        "?model=nova-3"
+        "?model=nova-2"
         "&language=en-US"
         "&smart_format=true"
         "&vad_events=true"
