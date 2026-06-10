@@ -152,10 +152,20 @@ async def main():
     # 3. Launch browser
     # We launch Chrome manually and connect via CDP to avoid the --remote-debugging-pipe
     # SIGTRAP crash that occurs on EC2 when Playwright manages the process directly.
-    CHROME_EXEC = os.getenv(
-        "CHROME_EXEC",
+    # Resolve Chrome binary: prefer env override, then common system paths
+    _chrome_candidates = [
+        os.getenv("CHROME_EXEC", ""),
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
         str(Path.home() / ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome"),
-    )
+    ]
+    CHROME_EXEC = next((c for c in _chrome_candidates if c and Path(c).exists()), None)
+    if not CHROME_EXEC:
+        raise RuntimeError("No Chrome/Chromium binary found. Set CHROME_EXEC env var.")
+    log.info(f"[Browser] Using Chrome binary: {CHROME_EXEC}")
+
     chrome_args = [
         CHROME_EXEC,
         "--remote-debugging-port=9222",
@@ -170,11 +180,13 @@ async def main():
         "--no-default-browser-check",
     ]
     chrome_env = {**os.environ, "DISPLAY": ":99"}
+    os.makedirs("logs", exist_ok=True)
+    chrome_log = open("logs/chrome.log", "w")
     chrome_proc = subprocess.Popen(
         chrome_args,
         env=chrome_env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=chrome_log,
+        stderr=chrome_log,
     )
     log.info(f"[Browser] Chrome launched (pid={chrome_proc.pid}), waiting for CDP...")
     # Poll port 9222 until Chrome is ready (up to 20 seconds)
