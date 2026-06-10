@@ -5,7 +5,8 @@ import pyaudio
 import httpx
 import websockets
 
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+def _get_key():
+    return os.getenv("DEEPGRAM_API_KEY")
 
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
@@ -57,7 +58,7 @@ async def stream_stt(on_transcript):
     try:
         async with websockets.connect(
             url,
-            additional_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
+            additional_headers={"Authorization": f"Token {_get_key()}"},
         ) as ws:
 
             async def send_audio():
@@ -101,7 +102,7 @@ async def speak(text: str):
 
     url = "https://api.deepgram.com/v1/speak?model=aura-2-en&encoding=linear16&sample_rate=16000"
     headers = {
-        "Authorization": f"Token {DEEPGRAM_API_KEY}",
+        "Authorization": f"Token {_get_key()}",
         "Content-Type": "application/json",
     }
 
