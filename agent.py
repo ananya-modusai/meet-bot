@@ -149,7 +149,7 @@ async def main():
     # 3. Launch browser
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            executable_path="/usr/bin/chromium-browser",
+            executable_path="/usr/bin/google-chrome",
             headless=False,
             args=[
                 f"--display=:99",
