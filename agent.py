@@ -217,12 +217,15 @@ async def main():
         viewer_path = Path(__file__).parent / "viewer.html"
         pdf_url = f"file://{viewer_path}?file={Path(args.doc).resolve()}"
         pdf_tab = await context.new_page()
-        await pdf_tab.goto(pdf_url)
-        log.info("[PDF] Viewer opened.")
+        try:
+            await pdf_tab.goto(pdf_url, wait_until="domcontentloaded", timeout=15000)
+            log.info("[PDF] Viewer opened.")
+        except Exception as e:
+            log.warning(f"[PDF] Viewer load warning (non-fatal): {e}")
 
         # 5. Join Google Meet
         meet_tab = await context.new_page()
-        await meet_tab.goto(args.meet)
+        await meet_tab.goto(args.meet, wait_until="domcontentloaded", timeout=60000)
 
         # Handle name prompt (shown when joining without a Google account)
         try:
