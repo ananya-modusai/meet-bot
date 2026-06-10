@@ -9,10 +9,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
-import anthropic
+from anthropic import AsyncAnthropic
 
 from document import prepare_document
-from audio import stream_stt, speak, is_speaking
+from audio import stream_stt, speak
 import meeting as meet_mod
 
 load_dotenv()
@@ -48,7 +48,7 @@ Respond ONLY in this JSON format:
 {{"answer": "conversational spoken response here", "page": 1}}"""
 
 # Anthropic client
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
 # Will be set after PDF is loaded
 system_prompt = ""
@@ -67,8 +67,8 @@ async def go_to_page(page_num: int):
 
 async def ask_claude(question: str) -> dict:
     """Send question to Claude with prompt caching on the document."""
-    response = client.messages.create(
-        model="claude-haiku-4-5",
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
         max_tokens=512,
         system=[
             {

@@ -1,53 +1,42 @@
 import asyncio
+import json
 import os
 import pyaudio
 import httpx
-from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+import websockets
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
-# PyAudio config
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000
 
-# Shared flag — agent sets this True while TTS is playing
 is_speaking = False
 
 
 async def stream_stt(on_transcript):
     """
     Capture audio from VirtualSpeaker.monitor via PyAudio and stream to
-    Deepgram Nova-3 STT. Calls on_transcript(text) when an utterance ends.
+    Deepgram Nova-3 STT over raw WebSocket. Calls on_transcript(text) when
+    an utterance ends (speech_final=True).
     """
     global is_speaking
 
-    dg = DeepgramClient(DEEPGRAM_API_KEY)
-    connection = dg.listen.asyncwebsocket.v("1")
-
-    async def on_message(self, result, **kwargs):
-        if is_speaking:
-            return
-        alt = result.channel.alternatives[0]
-        if result.speech_final and alt.transcript.strip():
-            await on_transcript(alt.transcript.strip())
-
-    connection.on(LiveTranscriptionEvents.Transcript, on_message)
-
-    options = LiveOptions(
-        model="nova-3",
-        language="en-US",
-        smart_format=True,
-        vad_events=True,
-        utterance_end_ms=1000,
+    url = (
+        "wss://api.deepgram.com/v1/listen"
+        "?model=nova-3"
+        "&language=en-US"
+        "&smart_format=true"
+        "&vad_events=true"
+        "&utterance_end_ms=1000"
+        "&encoding=linear16"
+        f"&sample_rate={RATE}"
+        "&channels=1"
     )
-
-    await connection.start(options)
 
     pa = pyaudio.PyAudio()
 
-    # Find VirtualSpeaker.monitor input device index
     device_index = None
     for i in range(pa.get_device_count()):
         info = pa.get_device_info_by_index(i)
@@ -65,16 +54,42 @@ async def stream_stt(on_transcript):
     )
 
     print("[STT] Listening...")
+
     try:
-        while True:
-            data = stream.read(CHUNK, exception_on_overflow=False)
-            await connection.send(data)
-            await asyncio.sleep(0)
+        async with websockets.connect(
+            url,
+            additional_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
+        ) as ws:
+
+            async def send_audio():
+                try:
+                    while True:
+                        data = stream.read(CHUNK, exception_on_overflow=False)
+                        await ws.send(data)
+                        await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"[STT] Send error: {e}")
+
+            async def receive_transcripts():
+                try:
+                    async for message in ws:
+                        if is_speaking:
+                            continue
+                        msg = json.loads(message)
+                        if msg.get("type") == "Results":
+                            alts = msg.get("channel", {}).get("alternatives", [])
+                            if alts and msg.get("speech_final"):
+                                transcript = alts[0].get("transcript", "").strip()
+                                if transcript:
+                                    await on_transcript(transcript)
+                except Exception as e:
+                    print(f"[STT] Receive error: {e}")
+
+            await asyncio.gather(send_audio(), receive_transcripts())
     finally:
         stream.stop_stream()
         stream.close()
         pa.terminate()
-        await connection.finish()
 
 
 async def speak(text: str):
@@ -90,11 +105,9 @@ async def speak(text: str):
         "Authorization": f"Token {DEEPGRAM_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {"text": text}
 
     pa = pyaudio.PyAudio()
 
-    # Find VirtualMic output device index
     device_index = None
     for i in range(pa.get_device_count()):
         info = pa.get_device_info_by_index(i)
@@ -112,7 +125,7 @@ async def speak(text: str):
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            async with client.stream("POST", url, headers=headers, json={"text": text}) as resp:
                 resp.raise_for_status()
                 async for chunk in resp.aiter_bytes(chunk_size=CHUNK):
                     stream.write(chunk)
