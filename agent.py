@@ -164,24 +164,19 @@ async def main():
         log.info("[Screenshot] screenshots/meet_6_pre_join.png")
 
         # 5. Click Join / Ask to join
-        # Meet disables the button until it verifies media devices. On a headless VM
-        # the check never passes, so we strip the disabled attribute via JS then click.
+        # Button is disabled until a name is entered — by this point name is filled,
+        # so a normal click works. Dismiss any tooltip popup first.
+        try:
+            await meet_tab.locator("button:has-text('Got it')").click(timeout=2000)
+        except Exception:
+            pass
+
         join_btn = meet_tab.locator(
             "button:has-text('Join now'), button:has-text('Ask to join')"
         ).first
         await join_btn.wait_for(timeout=20000)
-        log.info("[Meet] Join button found, sending join request...")
-        await asyncio.sleep(3)
-        await meet_tab.evaluate("""() => {
-            const btn = document.querySelector(
-                'button[data-promo-anchor-id], button[jscontroller="O626Fe"]'
-            );
-            if (btn) {
-                btn.disabled = false;
-                btn.removeAttribute('disabled');
-                btn.click();
-            }
-        }""")
+        log.info("[Meet] Join button found, clicking...")
+        await join_btn.click(timeout=15000)
         log.info("[Meet] Join request sent.")
 
         # Screenshot after join attempt
