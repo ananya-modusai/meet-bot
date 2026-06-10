@@ -135,6 +135,13 @@ async def main():
         await meet_tab.goto(args.meet, wait_until="domcontentloaded", timeout=60000)
         log.info("[Meet] Page loaded.")
 
+        # Take 5 screenshots 1s apart so we can see what the browser shows
+        os.makedirs("screenshots", exist_ok=True)
+        for i in range(1, 6):
+            await meet_tab.screenshot(path=f"screenshots/meet_{i}.png")
+            log.info(f"[Screenshot] screenshots/meet_{i}.png")
+            await asyncio.sleep(1)
+
         # 3. Enter name if prompted (guest flow)
         try:
             name_input = meet_tab.locator("input[placeholder='Your name']")
@@ -151,6 +158,10 @@ async def main():
             log.info("[Meet] Camera turned off.")
         except Exception:
             pass
+
+        # Screenshot before join attempt
+        await meet_tab.screenshot(path="screenshots/meet_6_pre_join.png")
+        log.info("[Screenshot] screenshots/meet_6_pre_join.png")
 
         # 5. Click Join / Ask to join
         # Meet disables the button until it verifies media devices. On a headless VM
@@ -172,6 +183,11 @@ async def main():
             }
         }""")
         log.info("[Meet] Join request sent.")
+
+        # Screenshot after join attempt
+        await asyncio.sleep(2)
+        await meet_tab.screenshot(path="screenshots/meet_7_post_join.png")
+        log.info("[Screenshot] screenshots/meet_7_post_join.png")
 
         # 6. Listen for voice and chat simultaneously
         log.info("[Agent] Listening for voice and chat...")
