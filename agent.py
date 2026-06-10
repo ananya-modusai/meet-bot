@@ -179,7 +179,7 @@ async def main():
     await asyncio.sleep(3)  # Give Chrome time to open the debug port
 
     async with async_playwright() as p:
-        browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+        browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
         log.info("[Browser] Connected via CDP.")
         context = await browser.new_context(
             permissions=["camera", "microphone"],
