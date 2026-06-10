@@ -154,9 +154,10 @@ async def main():
             executable_path="/usr/bin/google-chrome",
             headless=False,
             args=[
-                f"--display=:99",
                 "--no-sandbox",
+                "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
+                "--disable-gpu",
                 "--autoplay-policy=no-user-gesture-required",
                 "--use-fake-ui-for-media-stream",
                 "--auto-accept-camera-and-microphone-capture",
