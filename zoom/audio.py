@@ -87,7 +87,7 @@ async def speak(text: str):
     global is_speaking
     is_speaking = True
 
-    url = "https://api.deepgram.com/v1/speak?model=aura-2-en&encoding=linear16&sample_rate=16000"
+    url = "https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=linear16&sample_rate=16000"
     headers = {
         "Authorization": f"Token {_get_key()}",
         "Content-Type": "application/json",
