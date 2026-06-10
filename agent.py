@@ -149,20 +149,38 @@ async def main():
     start_recording()
 
     # 3. Launch browser
+    # We launch Chrome manually and connect via CDP to avoid the --remote-debugging-pipe
+    # SIGTRAP crash that occurs on EC2 when Playwright manages the process directly.
+    CHROME_EXEC = os.getenv(
+        "CHROME_EXEC",
+        str(Path.home() / ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome"),
+    )
+    chrome_args = [
+        CHROME_EXEC,
+        "--remote-debugging-port=9222",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--autoplay-policy=no-user-gesture-required",
+        "--use-fake-ui-for-media-stream",
+        "--auto-accept-camera-and-microphone-capture",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    chrome_env = {**os.environ, "DISPLAY": ":99"}
+    chrome_proc = subprocess.Popen(
+        chrome_args,
+        env=chrome_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    log.info(f"[Browser] Chrome launched (pid={chrome_proc.pid}), waiting for CDP...")
+    await asyncio.sleep(3)  # Give Chrome time to open the debug port
+
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            ignore_default_args=["--enable-unsafe-swiftshader"],
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--autoplay-policy=no-user-gesture-required",
-                "--use-fake-ui-for-media-stream",
-                "--auto-accept-camera-and-microphone-capture",
-            ],
-        )
+        browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+        log.info("[Browser] Connected via CDP.")
         context = await browser.new_context(
             permissions=["camera", "microphone"],
         )
