@@ -175,6 +175,7 @@ async def main():
         "--disable-gpu",
         "--autoplay-policy=no-user-gesture-required",
         "--use-fake-ui-for-media-stream",
+        "--use-fake-device-for-media-stream",
         "--no-first-run",
         "--no-default-browser-check",
     ]
@@ -246,11 +247,14 @@ async def main():
             pass
 
         # Click Join — works for both signed-in ("Join now") and guest ("Ask to join")
+        # Wait up to 20s for the button to appear, then another 5s for Meet to finish
+        # its media readiness check (button starts disabled until devices are ready)
         join_btn = meet_tab.locator(
             "button:has-text('Join now'), button:has-text('Ask to join')"
         ).first
-        await join_btn.wait_for(timeout=15000)
-        await join_btn.click()
+        await join_btn.wait_for(timeout=20000)
+        await asyncio.sleep(5)
+        await join_btn.click(timeout=30000)
         log.info("[Meet] Joined the call.")
 
         # 6. Start chat polling and STT concurrently
