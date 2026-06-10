@@ -56,12 +56,11 @@ async def main():
 
         print(f"[+] Navigating to {args.meet}")
         await page.goto(args.meet, wait_until="domcontentloaded", timeout=60000)
-        await page.screenshot(path="/tmp/meet_1_loaded.png")
-        print("[+] Screenshot 1: page loaded -> /tmp/meet_1_loaded.png")
 
-        await asyncio.sleep(3)
-        await page.screenshot(path="/tmp/meet_2_after3s.png")
-        print("[+] Screenshot 2: after 3s -> /tmp/meet_2_after3s.png")
+        for i in range(1, 6):
+            await page.screenshot(path=f"/tmp/meet_{i}.png")
+            print(f"[+] Screenshot {i} -> /tmp/meet_{i}.png")
+            await asyncio.sleep(1)
 
         # Try name input
         try:
@@ -72,9 +71,9 @@ async def main():
         except Exception:
             print("[+] No name prompt")
 
-        await asyncio.sleep(2)
-        await page.screenshot(path="/tmp/meet_3_pre_join.png")
-        print("[+] Screenshot 3: pre-join -> /tmp/meet_3_pre_join.png")
+        await asyncio.sleep(1)
+        await page.screenshot(path="/tmp/meet_6_pre_join.png")
+        print("[+] Screenshot 6: pre-join -> /tmp/meet_6_pre_join.png")
 
         # Log all visible buttons
         buttons = await page.locator("button").all()
