@@ -1,103 +1,38 @@
 # Meeting AI Agent — Architecture
 
-## System Overview
+## Full System Flow
 
 ```mermaid
 flowchart TD
-    CLI["run.py\n--platform recall\n--meeting URL\n--doc file.pdf"]
+    CLI["🚀 run.py\n--platform recall\n--meeting URL\n--doc file.pdf"]
 
-    subgraph STARTUP["Startup"]
-        DOC["document.py\nExtract PDF text\npage by page"]
-        PROMPT["Build Claude\nSystem Prompt\n(PDF text injected)"]
-        BOT_CREATE["recall/meeting.py\nPOST /api/v1/bot/\nCreate Recall.ai bot"]
-        BOT_JOIN["Recall.ai\nHandles join\n(Zoom / Meet / Teams)"]
-        WAIT["Wait for bot status\n→ in_call_recording"]
-    end
+    CLI --> DOC["📄 document.py\nExtract PDF text\nwith page markers"]
+    DOC --> PROMPT["Build System Prompt\nPDF text + rules injected\ninto Claude context"]
+    PROMPT --> CREATE["recall/meeting.py\nPOST Recall.ai API\nCreate bot"]
+    CREATE --> JOIN["Recall.ai joins meeting\nZoom · Meet · Teams\nHandles locked rooms"]
+    JOIN --> WAIT["Wait for bot status\nin_call_recording"]
 
-    subgraph LISTEN["Real-time Listen Loop (poll every 1s)"]
-        POLL["GET /bot/{id}/transcript/\nFull transcript so far"]
-        DELTA["Delta tracker\nOnly new words since last poll"]
-        SILENCE["Silence detector\nNo new words for 1.5s\n→ utterance complete"]
-        UTTERANCE["on_utterance(speaker, text)"]
-    end
+    WAIT --> POLL["Poll /transcript/ every 1s\nFull transcript returned"]
+    POLL --> DELTA["Delta tracker\nOnly new words processed"]
+    DELTA --> SILENCE{"Silence > 1.5s?"}
+    SILENCE -->|No| POLL
+    SILENCE -->|Yes| UTT["Utterance complete\nspeaker + text"]
 
-    subgraph BRAIN["Claude Processing"]
-        CLAUDE["claude-sonnet-4-6\nSystem: PDF context + rules\nTools: navigate_to_page, open_document\nHistory: full conversation"]
-        TEXT_OUT["text block\nSpoken preamble"]
-        TOOL_OUT["tool_use block\nAction to perform"]
-    end
+    UTT --> CLAUDE["claude-sonnet-4-6\nTools: navigate_to_page\n         open_document\nHistory: full conversation"]
 
-    subgraph RESPOND["Parallel Response (asyncio.gather)"]
-        TTS["recall/audio.py\nDeepgram Aura TTS\naura-odysseus-en\n→ raw PCM bytes"]
-        TOOL_EXEC["Tool execution\nnavigate_to_page(N)\nopen_document()"]
-        AUDIO_OUT["recall/meeting.py\nPOST /bot/{id}/output_audio/\nWAV → injected into meeting"]
-        PDF_NAV["PDF viewer\nScrolls to page N\n(future: screenshare)"]
-    end
+    CLAUDE --> TEXTBLOCK["text block\nSpoken reply"]
+    CLAUDE --> TOOLBLOCK["tool_use block\nAction to perform"]
 
-    subgraph MEETING["Live Meeting (any platform)"]
-        PARTICIPANTS["Meeting participants\nhear bot voice"]
-        RECALL_BOT["Recall.ai Bot\nin the call"]
-    end
+    TEXTBLOCK --> TTS["Deepgram Aura TTS\naura-odysseus-en\nPCM audio bytes"]
+    TOOLBLOCK --> TOOLEXEC["Execute tool\nnavigate_to_page N\nor open_document"]
 
-    CLI --> DOC
-    DOC --> PROMPT
-    PROMPT --> BOT_CREATE
-    BOT_CREATE --> BOT_JOIN
-    BOT_JOIN --> WAIT
-    WAIT --> POLL
+    TTS --> WAVWRAP["Wrap PCM → WAV\nPOST /output_audio/"]
+    TOOLEXEC --> PDFNAV["PDF viewer\nScrolls to page N"]
 
-    POLL --> DELTA
-    DELTA --> SILENCE
-    SILENCE --> UTTERANCE
-    UTTERANCE --> CLAUDE
+    WAVWRAP -->|asyncio.gather\nboth fire at once| SYNC["✅ Bot speaks +\nDocument scrolls\nsimultaneously"]
+    PDFNAV --> SYNC
 
-    CLAUDE --> TEXT_OUT
-    CLAUDE --> TOOL_OUT
-
-    TEXT_OUT --> TTS
-    TOOL_OUT --> TOOL_EXEC
-
-    TTS --> AUDIO_OUT
-    TOOL_EXEC --> PDF_NAV
-
-    AUDIO_OUT --> RECALL_BOT
-    RECALL_BOT --> PARTICIPANTS
-
-    PARTICIPANTS -->|speak| RECALL_BOT
-    RECALL_BOT -->|transcribe| POLL
-```
-
----
-
-## Conversation Turn — Detailed Sequence
-
-```mermaid
-sequenceDiagram
-    participant P as Participant
-    participant R as Recall.ai Bot
-    participant A as agent.py
-    participant C as Claude API
-    participant D as Deepgram TTS
-    participant M as meeting.py
-
-    P->>R: speaks (audio)
-    R->>R: transcribes (Deepgram STT via Recall)
-    A->>M: poll /transcript/ every 1s
-    M-->>A: new words detected
-    A->>A: silence detected → utterance complete
-    A->>C: messages + tools + PDF context
-    C-->>A: text block + tool_use block
-    
-    par Parallel execution
-        A->>D: POST /speak (text → PCM)
-        D-->>A: raw audio bytes
-        A->>M: POST /output_audio/ (WAV)
-        M->>R: inject audio into meeting
-        R->>P: bot speaks
-    and
-        A->>A: execute tool (navigate_to_page N)
-        Note over A: PDF viewer scrolls to page N
-    end
+    SYNC --> POLL
 ```
 
 ---
@@ -108,40 +43,40 @@ sequenceDiagram
 flowchart LR
     RUN["run.py\n--platform X"]
 
-    RUN -->|recall| RC["recall/\nagent.py\nmeeting.py\naudio.py\ndocument.py"]
-    RUN -->|zoom| ZM["zoom/\nagent.py\naudio.py\nmeeting.py"]
-    RUN -->|meet| GM["agent.py\naudio.py\nmeeting.py\ndocument.py"]
+    RUN -->|"--platform recall"| RC["recall/\nagent.py\nmeeting.py\naudio.py\ndocument.py"]
+    RUN -->|"--platform zoom"| ZM["zoom/\nagent.py\naudio.py\nmeeting.py"]
+    RUN -->|"--platform meet"| GM["root/\nagent.py\naudio.py\nmeeting.py\ndocument.py"]
 
-    RC -->|"Recall.ai API\n(any platform)"| ANY["Zoom / Meet / Teams\nlocked meetings OK"]
-    ZM -->|"Playwright + Chrome CDP\n(Zoom web client)"| ZOOM["Zoom\nopen meetings only"]
-    GM -->|"Playwright + Chrome CDP\n(Meet web client)"| MEET["Google Meet\nguest join only"]
+    RC --> ANY["Any platform\nZoom · Meet · Teams\nLocked meetings OK\nRecall.ai API"]
+    ZM --> ZONLY["Zoom only\nPlaywright + Chrome\nUnlocked meetings"]
+    GM --> MONLY["Google Meet\nPlaywright + Chrome\nGuest join"]
 ```
 
 ---
 
-## External Services
-
-| Service | Purpose | Used in |
-|---|---|---|
-| **Recall.ai** | Bot joins meeting, STT transcription, audio injection | `recall/` |
-| **Anthropic Claude** | Understands question, generates spoken reply + tool calls | all platforms |
-| **Deepgram Aura** (TTS) | Converts Claude's text reply to audio (Odysseus voice) | all platforms |
-| **Deepgram Nova** (STT) | Transcribes meeting audio | `zoom/`, `meet/` (via PulseAudio) |
-
----
-
-## Tool Use — How Actions and Speech Sync
+## One Conversation Turn
 
 ```mermaid
-flowchart TD
-    Q["User: What does the contract say\nabout termination on page 12?"]
-    CLAUDE["Claude processes with full PDF context"]
-    
-    CLAUDE --> T["text block\n'The termination clause on page 12 states\nthat either party may exit with 30 days notice...'"]
-    CLAUDE --> TC["tool_use\nnavigate_to_page(12)"]
+sequenceDiagram
+    participant P as Participant
+    participant R as Recall.ai Bot
+    participant A as agent.py
+    participant C as Claude
+    participant D as Deepgram TTS
 
-    T --> TTS["Deepgram TTS → audio"]
-    TC --> NAV["PDF viewer jumps to page 12"]
-
-    TTS & NAV -->|asyncio.gather — simultaneous| DONE["Bot speaks while document scrolls"]
+    P->>R: speaks
+    R->>R: STT transcription
+    A->>R: poll /transcript/ (1s interval)
+    R-->>A: new words
+    A->>A: silence detected → utterance ready
+    A->>C: text + tools + PDF context + history
+    C-->>A: text block + tool_use block
+    par
+        A->>D: text → PCM audio
+        D-->>A: audio bytes
+        A->>R: POST /output_audio/
+        R->>P: bot voice heard
+    and
+        A->>A: navigate_to_page(N)
+    end
 ```
