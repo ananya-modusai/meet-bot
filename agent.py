@@ -17,6 +17,8 @@ import meeting as meet_mod
 
 load_dotenv()
 
+os.environ.setdefault("DISPLAY", ":99")
+
 # --- Logging setup ---
 os.makedirs("logs", exist_ok=True)
 log_file = f"logs/agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
