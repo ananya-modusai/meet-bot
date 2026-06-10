@@ -253,8 +253,8 @@ async def main():
             "button:has-text('Join now'), button:has-text('Ask to join')"
         ).first
         await join_btn.wait_for(timeout=20000)
-        await asyncio.sleep(5)
-        await join_btn.click(timeout=30000)
+        await asyncio.sleep(3)
+        await join_btn.click(force=True, timeout=10000)
         log.info("[Meet] Joined the call.")
 
         # 6. Start chat polling and STT concurrently
