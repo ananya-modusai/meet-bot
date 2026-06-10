@@ -246,16 +246,20 @@ async def main():
         except Exception:
             pass
 
-        # Click Join — works for both signed-in ("Join now") and guest ("Ask to join")
-        # Wait up to 20s for the button to appear, then another 5s for Meet to finish
-        # its media readiness check (button starts disabled until devices are ready)
+        # Click Join button. On EC2/headless, Meet keeps the button disabled because
+        # it can't verify media devices. We strip the disabled attribute via JS first.
         join_btn = meet_tab.locator(
             "button:has-text('Join now'), button:has-text('Ask to join')"
         ).first
         await join_btn.wait_for(timeout=20000)
         await asyncio.sleep(3)
-        await join_btn.click(force=True, timeout=10000)
-        log.info("[Meet] Joined the call.")
+        await meet_tab.evaluate("""() => {
+            const btn = document.querySelector(
+                'button[jscontroller="O626Fe"], button[data-promo-anchor-id]'
+            );
+            if (btn) { btn.disabled = false; btn.removeAttribute('disabled'); btn.click(); }
+        }""")
+        log.info("[Meet] Join request sent.")
 
         # 6. Start chat polling and STT concurrently
         await asyncio.gather(
