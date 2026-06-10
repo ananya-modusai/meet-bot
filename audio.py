@@ -1,26 +1,23 @@
 import asyncio
 import json
 import os
-import pyaudio
 import httpx
 import websockets
 
 def _get_key():
     return os.getenv("DEEPGRAM_API_KEY")
 
-CHUNK = 1024
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
 RATE = 16000
+CHUNK = 2048  # bytes (1024 s16le samples = 64ms at 16kHz)
 
 is_speaking = False
 
 
 async def stream_stt(on_transcript):
     """
-    Capture audio from VirtualSpeaker.monitor via PyAudio and stream to
-    Deepgram Nova-3 STT over raw WebSocket. Calls on_transcript(text) when
-    an utterance ends (speech_final=True).
+    Capture meeting audio from VirtualSpeaker.monitor via parec and stream to
+    Deepgram Nova-2 STT. VirtualSpeaker is the PulseAudio sink where Chrome/Meet
+    routes all meeting audio output.
     """
     global is_speaking
 
@@ -35,46 +32,37 @@ async def stream_stt(on_transcript):
         "&channels=1"
     )
 
-    pa = pyaudio.PyAudio()
-
-    device_index = None
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if "VirtualSpeaker" in info["name"] and info["maxInputChannels"] > 0:
-            device_index = i
-            break
-
-    stream = pa.open(
-        format=FORMAT,
-        channels=CHANNELS,
-        rate=RATE,
-        input=True,
-        input_device_index=device_index,
-        frames_per_buffer=CHUNK,
+    proc = await asyncio.create_subprocess_exec(
+        "parec",
+        "--device=VirtualSpeaker.monitor",
+        "--format=s16le",
+        f"--rate={RATE}",
+        "--channels=1",
+        stdout=asyncio.subprocess.PIPE,
     )
-
-    print("[STT] Listening...")
+    print("[STT] parec started, connecting to Deepgram...")
 
     try:
         async with websockets.connect(
             url,
             additional_headers={"Authorization": f"Token {_get_key()}"},
         ) as ws:
+            print("[STT] Connected to Deepgram.")
 
             async def send_audio():
                 try:
                     while True:
-                        data = stream.read(CHUNK, exception_on_overflow=False)
-                        await ws.send(data)
-                        await asyncio.sleep(0)
+                        data = await proc.stdout.read(CHUNK)
+                        if not data:
+                            break
+                        if not is_speaking:
+                            await ws.send(data)
                 except Exception as e:
                     print(f"[STT] Send error: {e}")
 
             async def receive_transcripts():
                 try:
                     async for message in ws:
-                        if is_speaking:
-                            continue
                         msg = json.loads(message)
                         if msg.get("type") == "Results":
                             alts = msg.get("channel", {}).get("alternatives", [])
@@ -87,15 +75,14 @@ async def stream_stt(on_transcript):
 
             await asyncio.gather(send_audio(), receive_transcripts())
     finally:
-        stream.stop_stream()
-        stream.close()
-        pa.terminate()
+        proc.kill()
+        await proc.wait()
 
 
 async def speak(text: str):
     """
-    Send text to Deepgram Aura-2 TTS, receive audio bytes, play through
-    VirtualMic via PyAudio so meeting participants hear the agent.
+    Fetch TTS audio from Deepgram and play it to TTSSink via pacat.
+    VirtualMic monitors TTSSink.monitor, so Chrome's Zoom/Meet mic hears the bot.
     """
     global is_speaking
     is_speaking = True
@@ -106,21 +93,14 @@ async def speak(text: str):
         "Content-Type": "application/json",
     }
 
-    pa = pyaudio.PyAudio()
-
-    device_index = None
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if "VirtualMic" in info["name"] and info["maxOutputChannels"] > 0:
-            device_index = i
-            break
-
-    stream = pa.open(
-        format=pyaudio.paInt16,
-        channels=1,
-        rate=16000,
-        output=True,
-        output_device_index=device_index,
+    proc = await asyncio.create_subprocess_exec(
+        "pacat",
+        "--playback",
+        "--device=TTSSink",
+        "--format=s16le",
+        "--rate=16000",
+        "--channels=1",
+        stdin=asyncio.subprocess.PIPE,
     )
 
     try:
@@ -128,9 +108,13 @@ async def speak(text: str):
             async with client.stream("POST", url, headers=headers, json={"text": text}) as resp:
                 resp.raise_for_status()
                 async for chunk in resp.aiter_bytes(chunk_size=CHUNK):
-                    stream.write(chunk)
+                    proc.stdin.write(chunk)
+                    await proc.stdin.drain()
+        proc.stdin.close()
+        await proc.wait()
+    except Exception as e:
+        print(f"[TTS] Error: {e}")
+        proc.kill()
+        await proc.wait()
     finally:
-        stream.stop_stream()
-        stream.close()
-        pa.terminate()
         is_speaking = False

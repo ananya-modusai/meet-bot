@@ -16,19 +16,33 @@ pulseaudio --start --log-target=syslog 2>/dev/null
 sleep 1
 
 # Remove any existing virtual devices to avoid duplicates
-for idx in $(pactl list short modules | grep -E "VirtualSpeaker|VirtualMic" | awk '{print $1}'); do
+for idx in $(pactl list short modules | grep -E "VirtualSpeaker|VirtualMic|TTSSink" | awk '{print $1}'); do
     pactl unload-module "$idx" 2>/dev/null || true
 done
 
-# Create virtual speaker (captures Meet audio output)
+# VirtualSpeaker — null sink where Chrome/Zoom routes meeting audio output
+# Our STT captures from VirtualSpeaker.monitor (what participants say)
 pactl load-module module-null-sink \
     sink_name=VirtualSpeaker \
     sink_properties=device.description=VirtualSpeaker > /dev/null
 
-# Create virtual mic (injects agent voice into Meet)
+# TTSSink — separate null sink for our TTS audio output
+# Chrome uses TTSSink.monitor as Zoom's microphone input (what participants hear)
+pactl load-module module-null-sink \
+    sink_name=TTSSink \
+    sink_properties=device.description=TTSSink > /dev/null
+
+# VirtualMic — virtual source monitoring TTSSink.monitor
+# Chrome picks this up as Zoom's microphone device
 pactl load-module module-virtual-source \
     source_name=VirtualMic \
-    master=VirtualSpeaker.monitor \
+    master=TTSSink.monitor \
     source_properties=device.description=VirtualMic > /dev/null
 
+# Route Zoom's audio output to VirtualSpeaker, bot's voice from VirtualMic
+pactl set-default-sink VirtualSpeaker
+pactl set-default-source VirtualMic
+
 echo "Done. Virtual display :99 and audio devices ready."
+echo "  STT reads from : VirtualSpeaker.monitor  (meeting audio)"
+echo "  TTS writes to  : TTSSink                 (bot voice -> Zoom mic)"
