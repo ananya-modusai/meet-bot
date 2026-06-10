@@ -1,8 +1,10 @@
 import asyncio
 import argparse
 import json
+import logging
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,6 +16,20 @@ from audio import stream_stt, speak, is_speaking
 import meeting as meet_mod
 
 load_dotenv()
+
+# --- Logging setup ---
+os.makedirs("logs", exist_ok=True)
+log_file = f"logs/agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger("agent")
+log.info(f"Logging to {log_file}")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
@@ -74,7 +90,7 @@ async def ask_claude(question: str) -> dict:
 
 async def handle_input(text: str):
     """Central handler for both voice and chat input."""
-    print(f"[Input] {text}")
+    log.info(f"[Input] {text}")
 
     # Check for share intent first
     if meet_mod.has_share_intent(text):
@@ -89,14 +105,14 @@ async def handle_input(text: str):
         answer = result.get("answer", "Sorry, I couldn't find that.")
         page = result.get("page")
 
-        print(f"[Claude] page={page} answer={answer}")
+        log.info(f"[Claude] page={page} answer={answer}")
 
         if page:
             await go_to_page(page)
 
         await speak(answer)
     except Exception as e:
-        print(f"[Claude] Error: {e}")
+        log.error(f"[Claude] Error: {e}")
         await speak("Sorry, I ran into an issue answering that.")
 
 
@@ -110,7 +126,7 @@ def start_recording():
         f"recordings/$(date +%Y%m%d_%H%M%S).mp4"
     )
     subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print("[Recording] FFmpeg started.")
+    log.info("[Recording] FFmpeg started.")
 
 
 async def main():
@@ -122,10 +138,10 @@ async def main():
     args = parser.parse_args()
 
     # 1. Extract PDF text
-    print(f"[Doc] Loading {args.doc}...")
+    log.info(f"[Doc] Loading {args.doc}...")
     doc_text = prepare_document(args.doc)
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(full_document_text=doc_text)
-    print(f"[Doc] Loaded. ~{len(doc_text.split())} words.")
+    log.info(f"[Doc] Loaded. ~{len(doc_text.split())} words.")
 
     # 2. Start recording
     start_recording()
@@ -157,7 +173,7 @@ async def main():
         pdf_url = f"file://{viewer_path}?file={Path(args.doc).resolve()}"
         pdf_tab = await context.new_page()
         await pdf_tab.goto(pdf_url)
-        print("[PDF] Viewer opened.")
+        log.info("[PDF] Viewer opened.")
 
         # 5. Join Google Meet
         meet_tab = await context.new_page()
@@ -170,7 +186,7 @@ async def main():
             await name_input.click()
             await name_input.fill("")
             await name_input.type("Doc Agent", delay=50)
-            print("[Meet] Name entered.")
+            log.info("[Meet] Name entered.")
         except Exception:
             pass  # Already signed in — no name prompt shown
 
@@ -187,7 +203,7 @@ async def main():
         ).first
         await join_btn.wait_for(timeout=15000)
         await join_btn.click()
-        print("[Meet] Joined the call.")
+        log.info("[Meet] Joined the call.")
 
         # 6. Start chat polling and STT concurrently
         await asyncio.gather(
