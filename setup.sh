@@ -12,18 +12,19 @@ fi
 pulseaudio --start --log-target=syslog 2>/dev/null
 sleep 1
 
-# Clear existing virtual devices to prevent duplicates
-pactl unload-module module-null-sink 2>/dev/null || true
-pactl unload-module module-virtual-source 2>/dev/null || true
+# Unload any existing VirtualSpeaker / VirtualMic by index to prevent duplicates
+for idx in $(pactl list short modules | grep -E "VirtualSpeaker|VirtualMic" | awk '{print $1}'); do
+    pactl unload-module "$idx"
+done
 
 # Create virtual audio devices
 pactl load-module module-null-sink \
     sink_name=VirtualSpeaker \
-    sink_properties=device.description=VirtualSpeaker > /dev/null
+    sink_properties=device.description=VirtualSpeaker
 
 pactl load-module module-virtual-source \
     source_name=VirtualMic \
     master=VirtualSpeaker.monitor \
-    source_properties=device.description=VirtualMic > /dev/null
+    source_properties=device.description=VirtualMic
 
 echo "Virtual display :99 and audio devices ready."
