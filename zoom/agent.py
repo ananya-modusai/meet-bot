@@ -114,7 +114,6 @@ async def main():
             "--disable-gpu",
             "--autoplay-policy=no-user-gesture-required",
             "--use-fake-ui-for-media-stream",
-            "--use-fake-device-for-media-stream",
             "--no-first-run",
             "--no-default-browser-check",
         ],
@@ -200,6 +199,18 @@ async def main():
         await asyncio.sleep(3)
         await zoom_tab.screenshot(path="screenshots/zoom_4_post_join.png")
         log.info("[Screenshot] zoom_4_post_join.png")
+
+        # Turn off camera
+        try:
+            cam_btn = zoom_tab.locator(
+                "button[aria-label*='stop video' i], "
+                "button[aria-label*='turn off video' i], "
+                ".video-button__button"
+            ).first
+            await cam_btn.click(timeout=5000)
+            log.info("[Zoom] Camera turned off.")
+        except Exception:
+            pass
 
         # 6. Handle "Join Audio by Computer" dialog
         try:
