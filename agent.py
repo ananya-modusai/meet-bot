@@ -151,7 +151,6 @@ async def main():
     # 3. Launch browser
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            channel="chrome",
             headless=False,
             args=[
                 "--no-sandbox",
