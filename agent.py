@@ -3,6 +3,7 @@ import argparse
 import json
 import logging
 import os
+import socket
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -176,7 +177,18 @@ async def main():
         stderr=subprocess.DEVNULL,
     )
     log.info(f"[Browser] Chrome launched (pid={chrome_proc.pid}), waiting for CDP...")
-    await asyncio.sleep(3)  # Give Chrome time to open the debug port
+    # Poll port 9222 until Chrome is ready (up to 20 seconds)
+    for _ in range(40):
+        await asyncio.sleep(0.5)
+        try:
+            s = socket.create_connection(("127.0.0.1", 9222), timeout=1)
+            s.close()
+            break
+        except (ConnectionRefusedError, OSError):
+            continue
+    else:
+        raise RuntimeError("Chrome did not open port 9222 within 20 seconds")
+    log.info("[Browser] CDP port 9222 is open.")
 
     async with async_playwright() as p:
         browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
