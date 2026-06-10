@@ -43,6 +43,7 @@ Optional flags:
 ```
 ANTHROPIC_API_KEY=...
 DEEPGRAM_API_KEY=...
+RECALL_API_KEY=...
 ```
 
 ---
@@ -57,15 +58,24 @@ DEEPGRAM_API_KEY=...
 
 ---
 
+## Run command (unified)
+
+```bash
+python run.py --platform recall --meeting "https://zoom.us/j/..." --doc "/path/to/doc.pdf"
+python run.py --platform zoom   --meeting "https://zoom.us/j/..."
+python run.py --platform meet   --meeting "https://meet.google.com/..." --doc "/path/to/doc.pdf"
+```
+
 ## Architecture per platform
 
 Each platform is fully isolated — no shared code, even if it means duplication.
 
-| Directory      | Platform     | Status  |
-|----------------|--------------|---------|
-| `./`           | Google Meet  | Working (needs host admit; personal accounts may block) |
-| `zoom/`        | Zoom         | Working |
-| `google_meet/` | Google Meet  | Mirror of root (legacy) |
+| Directory      | Platform             | Status  |
+|----------------|----------------------|---------|
+| `recall/`      | Any (via Recall.ai)  | **Primary** — joins locked meetings, handles bot detection |
+| `zoom/`        | Zoom (Playwright)    | R&D — works on unlocked meetings |
+| `./`           | Google Meet          | R&D — needs host admit |
+| `google_meet/` | Google Meet          | Mirror of root (legacy) |
 
 ---
 
