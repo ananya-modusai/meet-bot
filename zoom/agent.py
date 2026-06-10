@@ -172,8 +172,14 @@ async def main():
 
         # 4. Enter name
         try:
-            name_input = zoom_tab.locator("input#inputname, input[placeholder*='name'], input[placeholder*='Name']").first
-            await name_input.wait_for(timeout=8000)
+            name_input = zoom_tab.locator(
+                "input#inputname, "
+                "input[aria-label='Your Name'], "
+                "input[aria-label*='name' i], "
+                "input[placeholder*='name' i], "
+                "input[type='text']"
+            ).first
+            await name_input.wait_for(timeout=20000)
             await name_input.fill(args.name)
             log.info(f"[Zoom] Name entered: {args.name}")
         except Exception as e:
