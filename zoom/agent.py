@@ -116,6 +116,10 @@ async def main():
             "--use-fake-ui-for-media-stream",
             "--no-first-run",
             "--no-default-browser-check",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--window-size=1280,720",
+            "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         ],
         env={**os.environ, "DISPLAY": ":99"},
         stdout=chrome_log,
@@ -139,9 +143,16 @@ async def main():
         browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
         log.info("[Browser] Connected via CDP.")
 
-        context = await browser.new_context(permissions=["camera", "microphone"])
+        context = await browser.new_context(
+            permissions=["camera", "microphone"],
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        )
         await context.grant_permissions(
             ["camera", "microphone"], origin="https://zoom.us"
+        )
+        # Spoof navigator.webdriver to avoid bot detection
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
 
         zoom_tab = await context.new_page()
@@ -199,6 +210,22 @@ async def main():
         await asyncio.sleep(3)
         await zoom_tab.screenshot(path="screenshots/zoom_4_post_join.png")
         log.info("[Screenshot] zoom_4_post_join.png")
+
+        # Dismiss "We detected you may be a bot" dialog if it appears
+        try:
+            close_btn = zoom_tab.locator("button:has-text('Close')").first
+            await close_btn.wait_for(timeout=3000)
+            await close_btn.click()
+            log.info("[Zoom] Dismissed bot-detection dialog.")
+            await asyncio.sleep(2)
+            # Re-click Join after dismissing
+            join_btn2 = zoom_tab.locator("button#joinBtn, button:has-text('Join'), button:has-text('Join Meeting')").first
+            await join_btn2.wait_for(timeout=5000)
+            await join_btn2.click()
+            log.info("[Zoom] Re-clicked Join after bot dialog.")
+            await asyncio.sleep(3)
+        except Exception:
+            pass
 
         # Turn off camera
         try:
