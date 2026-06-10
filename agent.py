@@ -152,6 +152,7 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=False,
+            ignore_default_args=["--enable-unsafe-swiftshader"],
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
