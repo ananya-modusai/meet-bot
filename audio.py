@@ -26,7 +26,7 @@ async def stream_stt(on_transcript):
         "?model=nova-2"
         "&language=en-US"
         "&smart_format=true"
-        "&endpointing=500"
+        "&endpointing=200"
         "&encoding=linear16"
         f"&sample_rate={RATE}"
         "&channels=1"
@@ -41,6 +41,8 @@ async def stream_stt(on_transcript):
         stdout=asyncio.subprocess.PIPE,
     )
     print("[STT] parec started, connecting to Deepgram...")
+
+    transcript_queue = asyncio.Queue(maxsize=1)
 
     try:
         async with websockets.connect(
@@ -68,12 +70,25 @@ async def stream_stt(on_transcript):
                             alts = msg.get("channel", {}).get("alternatives", [])
                             if alts and msg.get("speech_final"):
                                 transcript = alts[0].get("transcript", "").strip()
-                                if transcript:
-                                    await on_transcript(transcript)
+                                if transcript and not is_speaking:
+                                    while not transcript_queue.empty():
+                                        try:
+                                            transcript_queue.get_nowait()
+                                        except asyncio.QueueEmpty:
+                                            break
+                                    try:
+                                        transcript_queue.put_nowait(transcript)
+                                    except asyncio.QueueFull:
+                                        pass
                 except Exception as e:
                     print(f"[STT] Receive error: {e}")
 
-            await asyncio.gather(send_audio(), receive_transcripts())
+            async def process_transcripts():
+                while True:
+                    transcript = await transcript_queue.get()
+                    await on_transcript(transcript)
+
+            await asyncio.gather(send_audio(), receive_transcripts(), process_transcripts())
     finally:
         proc.kill()
         await proc.wait()
@@ -87,7 +102,7 @@ async def speak(text: str):
     global is_speaking
     is_speaking = True
 
-    url = "https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=linear16&sample_rate=16000"
+    url = "https://api.deepgram.com/v1/speak?model=aura-odysseus-en&encoding=linear16&sample_rate=16000"
     headers = {
         "Authorization": f"Token {_get_key()}",
         "Content-Type": "application/json",

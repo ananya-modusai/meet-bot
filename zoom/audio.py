@@ -16,8 +16,9 @@ is_speaking = False
 async def stream_stt(on_transcript):
     """
     Capture meeting audio from VirtualSpeaker.monitor via parec and stream to
-    Deepgram Nova-2 STT. VirtualSpeaker is the PulseAudio sink where Zoom routes
-    all meeting audio output — parec reads it directly, bypassing ALSA naming issues.
+    Deepgram Nova-2 STT. Uses a single-slot queue so only the latest transcript
+    is processed — any speech that arrives while the bot is responding is dropped
+    rather than queued up, preventing stacked multi-voice replies.
     """
     global is_speaking
 
@@ -26,7 +27,7 @@ async def stream_stt(on_transcript):
         "?model=nova-2"
         "&language=en-US"
         "&smart_format=true"
-        "&endpointing=500"
+        "&endpointing=200"
         "&encoding=linear16"
         f"&sample_rate={RATE}"
         "&channels=1"
@@ -41,6 +42,11 @@ async def stream_stt(on_transcript):
         stdout=asyncio.subprocess.PIPE,
     )
     print("[STT] parec started, connecting to Deepgram...")
+
+    # Single-slot queue: always holds at most 1 pending transcript.
+    # Producer drains stale entries before inserting, so the consumer
+    # always gets the freshest transcript and never processes a backlog.
+    transcript_queue = asyncio.Queue(maxsize=1)
 
     try:
         async with websockets.connect(
@@ -68,12 +74,26 @@ async def stream_stt(on_transcript):
                             alts = msg.get("channel", {}).get("alternatives", [])
                             if alts and msg.get("speech_final"):
                                 transcript = alts[0].get("transcript", "").strip()
-                                if transcript:
-                                    await on_transcript(transcript)
+                                if transcript and not is_speaking:
+                                    # Drain stale entry, then put latest
+                                    while not transcript_queue.empty():
+                                        try:
+                                            transcript_queue.get_nowait()
+                                        except asyncio.QueueEmpty:
+                                            break
+                                    try:
+                                        transcript_queue.put_nowait(transcript)
+                                    except asyncio.QueueFull:
+                                        pass
                 except Exception as e:
                     print(f"[STT] Receive error: {e}")
 
-            await asyncio.gather(send_audio(), receive_transcripts())
+            async def process_transcripts():
+                while True:
+                    transcript = await transcript_queue.get()
+                    await on_transcript(transcript)
+
+            await asyncio.gather(send_audio(), receive_transcripts(), process_transcripts())
     finally:
         proc.kill()
         await proc.wait()
@@ -81,13 +101,14 @@ async def stream_stt(on_transcript):
 
 async def speak(text: str):
     """
-    Fetch TTS audio from Deepgram and play it to TTSSink via pacat.
+    Fetch TTS audio from Deepgram (Odysseus voice) and play it to TTSSink via pacat.
     VirtualMic monitors TTSSink.monitor, so Chrome's Zoom mic hears the bot.
+    is_speaking blocks STT audio forwarding for the duration.
     """
     global is_speaking
     is_speaking = True
 
-    url = "https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=linear16&sample_rate=16000"
+    url = "https://api.deepgram.com/v1/speak?model=aura-odysseus-en&encoding=linear16&sample_rate=16000"
     headers = {
         "Authorization": f"Token {_get_key()}",
         "Content-Type": "application/json",
