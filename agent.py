@@ -175,7 +175,6 @@ async def main():
         "--disable-gpu",
         "--autoplay-policy=no-user-gesture-required",
         "--use-fake-ui-for-media-stream",
-        "--auto-accept-camera-and-microphone-capture",
         "--no-first-run",
         "--no-default-browser-check",
     ]
